@@ -1,0 +1,5 @@
+.env
+uploads/
+mail_log.txt
+__pycache__/
+*.pyc
