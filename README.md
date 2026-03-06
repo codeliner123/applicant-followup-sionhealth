@@ -55,3 +55,23 @@ Flask app for uploading a candidate CSV (`Name`, `Email`) and sending personaliz
    - `SENDER_EMAIL`
    - `SENDER_PASSWORD`
    - `FLASK_SECRET_KEY`
+
+
+## What you need to do (your end)
+
+1. In Vercel project settings, add environment variables:
+   - `SENDER_EMAIL`
+   - `SENDER_PASSWORD`
+   - `FLASK_SECRET_KEY` (use a strong random value, not `xoxo`)
+2. Trigger a redeploy from Vercel dashboard (**Deployments → Redeploy**) or push this branch.
+3. After deploy, open `/health` on your Vercel URL to verify the function is running.
+4. Upload a CSV with columns `Name,Email` and run **Dry run** first, then send.
+
+### Generate a strong Flask secret key
+
+```bash
+python - <<'PY'
+import secrets
+print(secrets.token_urlsafe(32))
+PY
+```
