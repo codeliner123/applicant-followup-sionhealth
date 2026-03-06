@@ -9,15 +9,14 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, session, url_for
-from werkzeug.utils import secure_filename
+from secure_filename import secure_filename
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-RUNTIME_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
-UPLOAD_DIR = RUNTIME_DIR / "uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-LOG_PATH = RUNTIME_DIR / "mail_log.txt"
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+LOG_PATH = BASE_DIR / "mail_log.txt"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
