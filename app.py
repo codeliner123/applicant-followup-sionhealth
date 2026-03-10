@@ -10,15 +10,18 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, session, url_for
-from secure_filename import secure_filename
+from flask import Flask, flash, redirect, render_template, request, url_for
+from werkzeug.utils import secure_filename
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
-LOG_PATH = BASE_DIR / "mail_log.txt"
+RUNTIME_DIR = Path("/tmp") if os.getenv("VERCEL") else BASE_DIR
+UPLOAD_DIR = RUNTIME_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+LOG_PATH = RUNTIME_DIR / "mail_log.txt"
+RUNS_DIR = RUNTIME_DIR / "runs"
+RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
@@ -33,6 +36,26 @@ def append_log(message: str) -> None:
     with LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(f"[{timestamp}] {message}\n")
 
+
+
+
+def save_run_data(summary: dict, results: list[dict]) -> str:
+    run_id = uuid.uuid4().hex
+    payload = {"summary": summary, "results": results}
+    (RUNS_DIR / f"{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    return run_id
+
+
+def load_run_data(run_id: str) -> dict | None:
+    if not run_id or not run_id.isalnum():
+        return None
+    run_path = RUNS_DIR / f"{run_id}.json"
+    if not run_path.exists():
+        return None
+    try:
+        return json.loads(run_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
 
 def build_email(name: str, recipient_email: str, form_url: str) -> MIMEMultipart:
     subject = "Update on Your Application"
@@ -136,9 +159,14 @@ def process_csv():
 
     smtp = None
     if not dry_run:
-        smtp = smtplib.SMTP("smtp.gmail.com", 587)
-        smtp.starttls()
-        smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
+        try:
+            smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
+            smtp.starttls()
+            smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
+        except Exception as exc:
+            append_log(f"FAILED | SMTP setup error | {exc}")
+            flash(f"SMTP setup failed: {exc}")
+            return redirect(url_for("index"))
 
     try:
         for _, row in deduped_df.iterrows():
@@ -181,24 +209,23 @@ def process_csv():
         "failed_count": int(failed_count),
         "dry_run": dry_run,
     }
-    session["last_results"] = results
-    session["last_summary"] = summary
+    run_id = save_run_data(summary, results)
 
     append_log(
         f"SUMMARY | total_rows={total_rows}, unique={len(deduped_df)}, duplicates={duplicate_count}, sent={sent_count}, failed={failed_count}, dry_run={dry_run}"
     )
 
-    return redirect(url_for("results"))
+    return redirect(url_for("results", run_id=run_id))
 
 
 @app.route("/results", methods=["GET"])
 def results():
-    summary = session.get("last_summary")
-    results_data = session.get("last_results")
-    if not summary:
+    run_id = request.args.get("run_id", "")
+    run_data = load_run_data(run_id)
+    if not run_data:
         flash("No results available yet. Upload a CSV first.")
         return redirect(url_for("index"))
-    return render_template("results.html", summary=summary, results=results_data)
+    return render_template("results.html", summary=run_data["summary"], results=run_data["results"], run_id=run_id)
 
 
 @app.route("/log", methods=["GET"])
@@ -208,6 +235,11 @@ def show_log():
     else:
         log_content = "No log entries yet."
     return render_template("log.html", log_content=log_content)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return {"status": "ok"}, 200
 
 
 if __name__ == "__main__":
